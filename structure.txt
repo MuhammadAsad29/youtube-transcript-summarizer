@@ -1,0 +1,13 @@
+/Youtube Transcript-Summarizer/
+├── app.py                  ← Streamlit entry point
+├── extractor.py            ← YouTube transcript extraction (dual-strategy)
+├── chunker.py              ← Text splitting and token counting
+├── summarizer.py           ← Ollama API calls, prompt templates, Map-Reduce logic
+├── utils.py                ← URL validation, text cleaning, file I/O helpers
+├── config.py               ← Loads .env, exposes settings as constants
+├── tests/
+│   ├── test_extractor.py
+│   ├── test_chunker.py
+│   └── test_summarizer.py
+├── .env                    ← OLLAMA_HOST, MODEL_NAME, CHUNK_SIZE, OVERLAP
+└── requirements.txt
