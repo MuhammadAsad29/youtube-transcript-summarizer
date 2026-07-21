@@ -1,6 +1,7 @@
 import streamlit as st
 import time
 import gc
+import config
 from config import MODEL_NAME, CHUNK_SIZE, OVERLAP
 from utils import (
     validate_youtube_url,
