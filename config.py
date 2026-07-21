@@ -5,6 +5,10 @@ load_dotenv()
 
 OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
 MODEL_NAME = os.getenv("MODEL_NAME", "llama3.2:3b-instruct-q4_K_M")
+
+# Groq API settings for cloud deployment
+GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
+GROQ_MODEL_NAME = os.getenv("GROQ_MODEL_NAME", "llama-3.1-8b-instant")
 CHUNK_SIZE = int(os.getenv("CHUNK_SIZE", 3000))
 OVERLAP = int(os.getenv("OVERLAP", 200))
 TEMPERATURE = float(os.getenv("TEMPERATURE", 0.3))

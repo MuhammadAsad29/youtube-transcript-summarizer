@@ -2,6 +2,8 @@ import gc
 import time
 import requests
 import json
+import os
+import config
 from config import (
     OLLAMA_HOST, MODEL_NAME, TEMPERATURE, TOP_P,
     NUM_CTX, NUM_THREAD, TIMEOUT,
@@ -15,11 +17,27 @@ GENERATE_ENDPOINT = f"{OLLAMA_HOST}/api/generate"
 TAGS_ENDPOINT = f"{OLLAMA_HOST}/api/tags"
 
 
+def get_groq_key() -> str:
+    """Helper to retrieve Groq API key from config, env, or Streamlit secrets."""
+    key = getattr(config, "GROQ_API_KEY", "") or os.getenv("GROQ_API_KEY", "")
+    if not key:
+        try:
+            import streamlit as st
+            key = st.secrets.get("GROQ_API_KEY", "")
+        except Exception:
+            pass
+    return key
+
+
 def check_ollama_connection() -> tuple[bool, str]:
     """
-    Checks if Ollama server is reachable and the configured model is available.
+    Checks connection to the configured LLM backend (Groq API or local Ollama).
     Returns (is_ok, message).
     """
+    groq_key = get_groq_key()
+    if groq_key:
+        return True, f"Groq API key detected. Cloud mode active ({config.GROQ_MODEL_NAME})."
+
     try:
         response = requests.get(TAGS_ENDPOINT, timeout=5)
         if response.status_code != 200:
@@ -41,15 +59,19 @@ def check_ollama_connection() -> tuple[bool, str]:
         return False, (
             "Cannot connect to Ollama server at "
             f"{OLLAMA_HOST}. "
-            "Make sure Ollama is installed and running. "
-            "Start it with: ollama serve"
+            "For cloud deployment, configure GROQ_API_KEY in Secrets. "
+            "For local mode, start Ollama: ollama serve"
         )
     except Exception as e:
-        return False, f"Unexpected error checking Ollama: {e}"
+        return False, f"Unexpected error checking connection: {e}"
 
 
 def list_available_models() -> list[str]:
-    """Returns list of locally available Ollama model names."""
+    """Returns list of locally available Ollama model names or Groq models."""
+    groq_key = get_groq_key()
+    if groq_key:
+        return ["llama-3.1-8b-instant", "llama-3.3-70b-versatile", "mixtral-8x7b-32768"]
+
     try:
         response = requests.get(TAGS_ENDPOINT, timeout=5)
         if response.status_code == 200:
@@ -60,12 +82,34 @@ def list_available_models() -> list[str]:
     return []
 
 
+def _call_groq(prompt: str, system_prompt: str = "", api_key: str = "") -> str:
+    """Calls Groq API for cloud inference."""
+    try:
+        from groq import Groq
+    except ImportError:
+        raise RuntimeError("The 'groq' package is missing. Run: pip install groq")
+
+    client = Groq(api_key=api_key)
+    messages = []
+    if system_prompt:
+        messages.append({"role": "system", "content": system_prompt})
+    messages.append({"role": "user", "content": prompt})
+
+    try:
+        model_to_use = getattr(config, "GROQ_MODEL_NAME", "llama-3.1-8b-instant")
+        completion = client.chat.completions.create(
+            model=model_to_use,
+            messages=messages,
+            temperature=TEMPERATURE,
+            top_p=TOP_P,
+        )
+        return completion.choices[0].message.content.strip()
+    except Exception as e:
+        raise RuntimeError(f"Groq API error: {e}")
+
+
 def _call_ollama(prompt: str, system_prompt: str = "") -> str:
-    """
-    Makes a single blocking call to the Ollama /api/generate endpoint.
-    Returns the generated text string.
-    Raises RuntimeError on failure.
-    """
+    """Makes a single blocking call to local Ollama /api/generate endpoint."""
     payload = {
         "model": MODEL_NAME,
         "prompt": prompt,
@@ -109,15 +153,20 @@ def _call_ollama(prompt: str, system_prompt: str = "") -> str:
     except requests.exceptions.ConnectionError:
         raise RuntimeError(
             "Lost connection to Ollama server during inference. "
-            "Ensure Ollama is still running."
+            "Ensure Ollama is running."
         )
 
 
+def _call_llm(prompt: str, system_prompt: str = "") -> str:
+    """Unified LLM router: routes to Groq if key exists, otherwise Ollama."""
+    groq_key = get_groq_key()
+    if groq_key:
+        return _call_groq(prompt, system_prompt, groq_key)
+    return _call_ollama(prompt, system_prompt)
+
+
 def summarize_chunk(chunk: str, chunk_index: int, total_chunks: int) -> str:
-    """
-    Summarizes a single transcript chunk.
-    Returns a 3-5 sentence summary string.
-    """
+    """Summarizes a single transcript chunk."""
     system_prompt = (
         "You are an expert content summarizer. "
         "Your task is to summarize sections of a YouTube video transcript. "
@@ -135,12 +184,10 @@ def summarize_chunk(chunk: str, chunk_index: int, total_chunks: int) -> str:
     )
 
     logger.info(f"Summarizing chunk {chunk_index}/{total_chunks}...")
-    summary = _call_ollama(prompt, system_prompt)
+    summary = _call_llm(prompt, system_prompt)
     logger.info(f"Chunk {chunk_index} summarized. Output length: {len(summary)} chars.")
 
-    # Free memory between chunk calls
     gc.collect()
-
     return summary
 
 
@@ -149,12 +196,7 @@ def generate_final_summary(
     video_title: str = ""
 ) -> dict:
     """
-    Takes all per-chunk summaries and generates:
-    - Executive summary (150-200 words)
-    - Key points (5-10 bullet points)
-    - Main themes (3 topics)
-
-    Returns a dict with keys: executive_summary, key_points, themes.
+    Takes all per-chunk summaries and generates executive summary, key points, themes.
     """
     combined_summaries = "\n\n".join(
         f"[Section {i+1}]: {summary}"
@@ -184,7 +226,7 @@ def generate_final_summary(
     )
 
     logger.info("Generating executive summary...")
-    executive_summary = _call_ollama(executive_prompt, system_prompt)
+    executive_summary = _call_llm(executive_prompt, system_prompt)
     gc.collect()
 
     # --- Key Points ---
@@ -202,7 +244,7 @@ def generate_final_summary(
     )
 
     logger.info("Generating key points...")
-    raw_key_points = _call_ollama(keypoints_prompt, system_prompt)
+    raw_key_points = _call_llm(keypoints_prompt, system_prompt)
     key_points = _parse_numbered_list(raw_key_points)
     gc.collect()
 
@@ -221,7 +263,7 @@ def generate_final_summary(
     )
 
     logger.info("Generating themes...")
-    raw_themes = _call_ollama(themes_prompt, system_prompt)
+    raw_themes = _call_llm(themes_prompt, system_prompt)
     themes = _parse_numbered_list(raw_themes)[:3]
     gc.collect()
 
@@ -238,31 +280,19 @@ def run_summarization_pipeline(
     video_title: str = "",
     progress_callback=None
 ) -> dict:
-    """
-    Orchestrates the full Map-Reduce summarization pipeline.
-
-    Args:
-        transcript: Full original transcript text.
-        chunks: List of text chunks from chunker.py.
-        video_title: Optional video title for context.
-        progress_callback: Optional callable(stage: str, current: int, total: int).
-                           Used by Streamlit to update a progress bar.
-
-    Returns:
-        Complete result dict ready for display and export.
-    """
+    """Orchestrates Map-Reduce pipeline."""
     start_time = time.time()
     total_chunks = len(chunks)
 
     if total_chunks == 0:
         raise ValueError("No chunks provided for summarization.")
 
+    active_model = config.GROQ_MODEL_NAME if get_groq_key() else MODEL_NAME
     logger.info(
         f"Starting summarization pipeline. "
-        f"Total chunks: {total_chunks}, Model: {MODEL_NAME}"
+        f"Total chunks: {total_chunks}, Model: {active_model}"
     )
 
-    # --- Stage 1: Chunk Summarization (Map) ---
     chunk_summaries = []
     for i, chunk in enumerate(chunks, 1):
         if progress_callback:
@@ -273,7 +303,6 @@ def run_summarization_pipeline(
 
     logger.info(f"All {total_chunks} chunks summarized. Starting final synthesis.")
 
-    # --- Stage 2: Final Synthesis (Reduce) ---
     if progress_callback:
         progress_callback("synthesis", 1, 1)
 
@@ -290,7 +319,7 @@ def run_summarization_pipeline(
         "word_count_summary": count_words(final["executive_summary"]),
         "compression_ratio": compute_compression_ratio(transcript, final["executive_summary"]),
         "processing_time_seconds": elapsed,
-        "model_used": MODEL_NAME,
+        "model_used": active_model,
         "chunk_count": total_chunks,
         "chunk_summaries": chunk_summaries
     }
@@ -307,10 +336,7 @@ def run_summarization_pipeline(
 
 
 def _parse_numbered_list(raw_text: str) -> list[str]:
-    """
-    Parses a numbered list response from the LLM into a Python list.
-    Handles various numbering formats: '1.', '1)', '- 1.', etc.
-    """
+    """Parses numbered list from LLM output."""
     import re
     lines = raw_text.strip().splitlines()
     items = []
@@ -319,9 +345,7 @@ def _parse_numbered_list(raw_text: str) -> list[str]:
         line = line.strip()
         if not line:
             continue
-        # Remove leading numbering like "1.", "1)", "- 1.", "• "
         cleaned = re.sub(r"^[\-\•\*]?\s*\d+[\.\)]\s*", "", line).strip()
-        # Also handle plain bullet points
         cleaned = re.sub(r"^[\-\•\*]\s+", "", cleaned).strip()
         if cleaned and len(cleaned) > 5:
             items.append(cleaned)

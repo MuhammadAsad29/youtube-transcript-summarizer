@@ -81,43 +81,58 @@ st.markdown("""
 
 # ─── Header ────────────────────────────────────────────────────────────────────
 
+from summarizer import get_groq_key
+
+groq_active = bool(get_groq_key())
+sub_text = "⚡ Powered by Groq Cloud API — Lightning Fast" if groq_active else "🔒 Powered by Local LLMs via Ollama — 100% Offline & Private"
+
 st.markdown('<div class="main-header">🎬 YouTube Transcript Summarizer</div>', unsafe_allow_html=True)
-st.markdown('<div class="sub-header">Powered by Local LLMs via Ollama — 100% Offline & Private</div>', unsafe_allow_html=True)
+st.markdown(f'<div class="sub-header">{sub_text}</div>', unsafe_allow_html=True)
 
 # ─── Sidebar ───────────────────────────────────────────────────────────────────
 
 with st.sidebar:
     st.header("⚙️ Configuration")
 
-    # Ollama Status
-    st.subheader("🔌 Ollama Status")
-    if st.button("Check Connection", use_container_width=True):
-        with st.spinner("Checking..."):
-            ok, msg = check_ollama_connection()
-        if ok:
-            st.success(msg)
-        else:
-            st.error(msg)
-            st.code("ollama serve", language="bash")
+    # Service Status
+    st.subheader("🔌 System Status")
+    if groq_active:
+        st.success("🟢 Groq API Connected (Cloud Mode)")
+    else:
+        if st.button("Check Connection", use_container_width=True):
+            with st.spinner("Checking..."):
+                ok, msg = check_ollama_connection()
+            if ok:
+                st.success(msg)
+            else:
+                st.error(msg)
+                st.code("ollama serve", language="bash")
 
     # Model Selection
     st.subheader("🤖 Model")
     available_models = list_available_models()
     if available_models:
+        default_idx = 0
+        if groq_active and config.GROQ_MODEL_NAME in available_models:
+            default_idx = available_models.index(config.GROQ_MODEL_NAME)
+        elif not groq_active and MODEL_NAME in available_models:
+            default_idx = available_models.index(MODEL_NAME)
+
         selected_model = st.selectbox(
             "Select Model",
             options=available_models,
-            index=0 if MODEL_NAME not in available_models else available_models.index(MODEL_NAME),
-            help="Only locally pulled models are shown."
+            index=default_idx,
+            help="Choose model for summarization."
         )
         # Override config at runtime
-        import config
-        config.MODEL_NAME = selected_model
-        import summarizer
-        summarizer.GENERATE_ENDPOINT = f"{config.OLLAMA_HOST}/api/generate"
+        if groq_active:
+            config.GROQ_MODEL_NAME = selected_model
+        else:
+            config.MODEL_NAME = selected_model
+            import summarizer
+            summarizer.GENERATE_ENDPOINT = f"{config.OLLAMA_HOST}/api/generate"
     else:
-        st.warning("No models found. Pull one with Ollama.")
-        st.code(f"ollama pull {MODEL_NAME}", language="bash")
+        st.warning("No models found. Pull one with Ollama or configure GROQ_API_KEY.")
         selected_model = MODEL_NAME
 
     # Summary Settings
