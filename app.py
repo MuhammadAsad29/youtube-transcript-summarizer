@@ -290,10 +290,16 @@ if summarize_btn and youtube_url:
         )
 
         # Stage 3: Summarization
-        status_placeholder.info(
-            f"🤖 Stage 3/3 — Summarizing with **{selected_model}**. "
-            f"This may take {stats['chunk_count'] * 2}–{stats['chunk_count'] * 5} minutes on CPU..."
-        )
+        if groq_active:
+            status_placeholder.info(
+                f"⚡ Stage 3/3 — Summarizing with **{selected_model}** via Groq Cloud API. "
+                f"Processing {stats['chunk_count']} chunks in seconds..."
+            )
+        else:
+            status_placeholder.info(
+                f"🤖 Stage 3/3 — Summarizing with **{selected_model}** via Ollama on CPU. "
+                f"This may take {stats['chunk_count'] * 2}–{stats['chunk_count'] * 5} minutes on CPU..."
+            )
 
         result = run_summarization_pipeline(
             transcript=transcript,
