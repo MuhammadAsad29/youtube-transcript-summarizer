@@ -72,9 +72,7 @@ def list_available_models() -> list[str]:
     if groq_key:
         return [
             "llama-3.3-70b-versatile",
-            "llama-3.1-8b-instant",
-            "qwen-2.5-72b-instruct",
-            "llama-3.2-3b-preview"
+            "llama-3.1-8b-instant"
         ]
 
     try:
