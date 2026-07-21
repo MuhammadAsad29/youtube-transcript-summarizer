@@ -70,7 +70,12 @@ def list_available_models() -> list[str]:
     """Returns list of locally available Ollama model names or Groq models."""
     groq_key = get_groq_key()
     if groq_key:
-        return ["llama-3.3-70b-versatile", "llama-3.1-8b-instant", "llama3-70b-8192", "llama3-8b-8192"]
+        return [
+            "llama-3.3-70b-versatile",
+            "llama-3.1-8b-instant",
+            "qwen-2.5-72b-instruct",
+            "llama-3.2-3b-preview"
+        ]
 
     try:
         response = requests.get(TAGS_ENDPOINT, timeout=5)
