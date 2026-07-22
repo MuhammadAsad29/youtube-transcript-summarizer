@@ -67,14 +67,30 @@ def check_ollama_connection() -> tuple[bool, str]:
 
 
 def list_available_models() -> list[str]:
-    """Returns list of locally available Ollama model names or Groq models."""
+    """Returns list of available text-generation models dynamically from Groq API or local Ollama."""
     groq_key = get_groq_key()
     if groq_key:
+        try:
+            from groq import Groq
+            client = Groq(api_key=groq_key)
+            models_data = client.models.list()
+            # Exclude audio (whisper), guard, and utility models
+            ignored_keywords = ["whisper", "guard", "orpheus", "compound"]
+            model_ids = [
+                m.id for m in models_data.data 
+                if getattr(m, "active", True) and not any(k in m.id for k in ignored_keywords)
+            ]
+            if model_ids:
+                return sorted(model_ids)
+        except Exception as e:
+            logger.error(f"Failed to query Groq models list dynamically: {e}")
+
         return [
             "llama-3.3-70b-versatile",
             "llama-3.1-8b-instant",
-            "gpt-oss-120b",
-            "gpt-oss-20b"
+            "openai/gpt-oss-120b",
+            "openai/gpt-oss-20b",
+            "qwen/qwen3.6-27b"
         ]
 
     try:
