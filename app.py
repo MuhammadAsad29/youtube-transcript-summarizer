@@ -186,13 +186,16 @@ streamlit run app.py
         """)
 
     with st.expander("ℹ️ Hardware Info"):
-        import psutil
-        ram = psutil.virtual_memory()
-        cpu_count = psutil.cpu_count(logical=False)
-        st.metric("Total RAM", f"{ram.total / (1024**3):.1f} GB")
-        st.metric("Available RAM", f"{ram.available / (1024**3):.1f} GB")
-        st.metric("Physical CPU Cores", cpu_count)
-        st.metric("RAM Usage", f"{ram.percent}%")
+        try:
+            import psutil
+            ram = psutil.virtual_memory()
+            cpu_count = psutil.cpu_count(logical=False)
+            st.metric("Total RAM", f"{ram.total / (1024**3):.1f} GB")
+            st.metric("Available RAM", f"{ram.available / (1024**3):.1f} GB")
+            st.metric("Physical CPU Cores", cpu_count)
+            st.metric("RAM Usage", f"{ram.percent}%")
+        except ImportError:
+            st.info("Cloud mode active (Hosted on Streamlit Cloud)")
 
 # ─── Main Input Area ───────────────────────────────────────────────────────────
 
